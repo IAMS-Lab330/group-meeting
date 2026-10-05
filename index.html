@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --c: #3f51b5; --bg: #f4f5fa; --card: #fff; --text: #222; --muted: #666; --line: #dde0ee; --ok: #2e7d32; --err: #c62828; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--c); color: #fff; padding: 14px 16px; }
+  header .in, main { max-width: 760px; margin: 0 auto; }
+  header h1 { margin: 0 0 8px; font-size: 20px; }
+  nav a { color: #fff; opacity: .8; text-decoration: none; margin-right: 14px; font-size: 14px; white-space: nowrap; }
+  nav a.on { opacity: 1; font-weight: bold; border-bottom: 2px solid #fff; }
+  main { padding: 16px; }
+  .card { background: var(--card); border-radius: 10px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h2 { margin: 0 0 12px; font-size: 18px; }
+  label { display: block; margin: 12px 0 4px; font-weight: 600; font-size: 14px; }
+  label small { font-weight: normal; color: var(--muted); }
+  input[type=text], input[type=email], input[type=date], select, textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+  textarea { min-height: 80px; resize: vertical; }
+  button { margin-top: 16px; background: var(--c); color: #fff; border: 0; padding: 10px 22px; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .msg { margin-top: 12px; padding: 10px 12px; border-radius: 6px; display: none; white-space: pre-wrap; }
+  .msg.ok { display: block; background: #e8f5e9; color: var(--ok); }
+  .msg.err { display: block; background: #ffebee; color: var(--err); }
+  .msg a { color: inherit; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .tile { display: block; background: var(--card); border-radius: 10px; padding: 16px; text-decoration: none; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); border-top: 4px solid var(--c); }
+  .tile b { display: block; margin-bottom: 4px; }
+  .next { font-size: 15px; line-height: 1.8; }
+  .pres { border-left: 4px solid var(--c); background: #f5f6fb; padding: 6px 10px; margin: 6px 0; border-radius: 0 6px 6px 0; }
+  .files { margin: 8px 0 0; padding-left: 20px; }
+  .files li { margin: 4px 0; word-break: break-all; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 10px; background: #e8eaf6; color: var(--c); margin-right: 4px; }
+  .cancel { color: var(--err); font-weight: bold; }
+  .prog { margin-top: 10px; font-size: 14px; }
+  .prog div { padding: 3px 0; word-break: break-all; }
+  .hidden { display: none; }
+  #search { margin-bottom: 14px; }
+  .wt { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .wt th { text-align: left; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding: 6px 4px; }
+  .wt td { border-bottom: 1px solid var(--line); padding: 8px 4px; vertical-align: middle; }
+  .bar { display: inline-block; width: 90px; height: 8px; background: #e8eaf6; border-radius: 4px; margin-right: 6px; vertical-align: middle; overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--c); }
+</style>
+</head>
+<body>
+<header><div class="in">
+  <h1 id="title"></h1>
+  <nav id="nav"></nav>
+</div></header>
+<main id="app"></main>
+
+<script>
+/* ===== 後端（Apps Script 網頁應用程式）網址，部署新版本後若網址改變要更新這一行 ===== */
+const EXEC_URL = 'https://script.google.com/macros/s/AKfycbx-FhsHVyMx2XC015LtPPkkYS2lfieg4jGbil3kXr6Tt02MduCpKiGzHEe1Wf4DPbgA/exec';
+
+const QS = new URLSearchParams(location.search);
+const SHELL = {
+  page: QS.get('page') || 'home',
+  url: location.origin + location.pathname,
+  group: 'Group Meeting',
+  admin: '',
+  params: { date: QS.get('date') || '', name: QS.get('name') || '', topic: QS.get('topic') || '',
+    action: QS.get('action') || '', backfill: QS.get('backfill') || '' },
+  token: QS.get('token') || '', email: QS.get('email') || '',
+};
+let B = SHELL;   // 輸入驗證碼後換成完整資料
+let CODE = '';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const link = (page, q) => B.url + '?page=' + page + (q || '');
+// 站內連結改成不重新載入整頁（避免重複輸入驗證碼）
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a[href]');
+  if (!a || a.dataset.page || !B.url || a.href.indexOf(B.url) !== 0) return;
+  const m = a.href.match(/[?&]page=([a-z]+)/);
+  if (!m || /&(date|name|topic|action|backfill)=/.test(a.href)) return;
+  e.preventDefault();
+  go(m[1]);
+});
+const isCodeErr = m => /驗證碼錯誤|嘗試次數過多/.test(m || '');
+function forgetCode() { try { sessionStorage.removeItem('gm_code'); } catch (e) {} }
+
+/** 直接呼叫後端（不帶 Cookie，所以不會有多帳號問題） */
+async function callApi(fn, args, code) {
+  const body = JSON.stringify({ code: code === undefined ? CODE : code, fn, args });
+  let data;
+  try {
+    const res = await fetch(EXEC_URL, {
+      method: 'POST', redirect: 'follow', credentials: 'omit',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body,
+    });
+    data = await res.json();
+  } catch (e) {
+    data = await jsonp(fn, args, code === undefined ? CODE : code);   // 備援管道
+  }
+  if (!data || !data.ok) throw new Error((data && data.error) || '無法連線到伺服器，請稍後再試');
+  return data.result;
+}
+
+/** 備援：用 <script> 取得結果（避開跨網域限制），只用於資料量小的呼叫 */
+function jsonp(fn, args, code) {
+  return new Promise((ok, fail) => {
+    const cb = 'gmcb' + Math.random().toString(36).slice(2);
+    const el = document.createElement('script');
+    const done = v => { try { delete window[cb]; } catch (e) {} el.remove(); v instanceof Error ? fail(v) : ok(v); };
+    window[cb] = done;
+    el.onerror = () => done(new Error('無法連線到伺服器'));
+    el.src = EXEC_URL + '?callback=' + cb + '&code=' + encodeURIComponent(code || '') +
+      '&fn=' + encodeURIComponent(fn) + '&args=' + encodeURIComponent(JSON.stringify(args || []));
+    if (el.src.length > 7000) return done(new Error('資料太大，請改用其他瀏覽器或稍後再試'));
+    document.body.appendChild(el);
+  });
+}
+
+const run = (fn, ...args) => callApi(fn, args).catch(err => {
+  if (isCodeErr(err.message)) { forgetCode(); showGate(err.message); }
+  throw err;
+});
+
+const PAGES = [
+  ['home', '首頁'], ['schedule', '未來會議'], ['present', '報告登記'], ['upload', '上傳資料'], ['archive', '會議資料'],
+  ['weights', '抽籤權重'], ['help', '說明'],
+];
+
+document.title = B.group;
+$('title').textContent = B.group;
+function renderNav() {
+  $('nav').innerHTML = PAGES.map(([p, t]) => `<a href="${link(p)}" data-page="${p}" class="${p === B.page ? 'on' : ''}">${t}</a>`).join('');
+  [...$('nav').querySelectorAll('a')].forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.page); });
+}
+renderNav();
+
+/** 在同一頁內切換（不重新載入，驗證碼只需輸入一次） */
+async function go(page) {
+  B = Object.assign({}, B, { page, date: '', name: '', topic: '', action: '', backfill: '' });
+  if ((page === 'present' || page === 'upload') && !B.foldersLoaded) {
+    try {
+      const boot = await run('getBoot', page, {});
+      B = Object.assign({}, B, boot, { page, foldersLoaded: true });
+    } catch (e) { return; }
+  }
+  renderNav();
+  (render[page] || render.home)();
+}
+
+function msg(el, text, ok) { el.className = 'msg ' + (ok ? 'ok' : 'err'); el.innerHTML = text; }
+
+function meetingLine(m) {
+  if (!m) return '';
+  if (m.cancelled) return `${esc(m.label)} <span class="cancel">（取消）</span>`;
+  return `${esc(m.label)} ${esc(m.start)}–${esc(m.end)} @ ${esc(m.location)}`;
+}
+
+/** 會議日期下拉選單（含「其他日期」） */
+function dateSelect(id, list, selected) {
+  const sel = selected && list.some(m => m.date === selected) ? selected : (selected ? '__other' : (list[0] || {}).date);
+  const opts = list.map(m => `<option value="${m.date}" ${m.date === sel ? 'selected' : ''}>${esc(m.label)}${m.cancelled ? '（取消）' : ''}${m.presenters.length ? '｜' + esc(m.presenters.map(p => p.name).join('、')) : ''}</option>`).join('');
+  return `<select id="${id}">${opts}<option value="__other" ${sel === '__other' ? 'selected' : ''}>其他日期…</option></select>
+    <input type="date" id="${id}_other" class="${sel === '__other' ? '' : 'hidden'}" style="margin-top:6px" value="${sel === '__other' ? esc(selected) : ''}">`;
+}
+function bindDateSelect(id, onChange) {
+  $(id).addEventListener('change', () => { $(id + '_other').classList.toggle('hidden', $(id).value !== '__other'); onChange && onChange(); });
+  $(id + '_other').addEventListener('change', () => onChange && onChange());
+}
+function dateVal(id) { return $(id).value === '__other' ? $(id + '_other').value : $(id).value; }
+
+function readB64(file) {
+  return new Promise((ok, fail) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(',')[1] || '');
+    r.onerror = () => fail(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+/** 個人資料夾選單（可自行建立新資料夾） */
+function folderPicker(id) {
+  if (B.folderError) return `<div class="msg err" style="display:block">${esc(B.folderError)}</div><select id="${id}" class="hidden"></select>`;
+  return `<select id="${id}">
+      <option value="">— 請選擇以你名字命名的資料夾 —</option>
+      ${B.folders.map(f => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}
+      <option value="__new">＋ 沒有我的資料夾，建立一個新的…</option>
+    </select>
+    <input type="text" id="${id}_name" class="hidden" style="margin-top:6px" placeholder="新資料夾名稱（通常是你的名字）">`;
+}
+function bindFolderPicker(id, nameInput) {
+  const sel = $(id);
+  const auto = () => { // 依輸入的姓名自動選擇同名資料夾
+    if (sel.value) return;
+    const n = nameInput.value.trim().toLowerCase();
+    const f = B.folders.find(f => f.name.trim().toLowerCase() === n);
+    if (f) sel.value = f.id;
+  };
+  sel.addEventListener('change', () => {
+    $(id + '_name').classList.toggle('hidden', sel.value !== '__new');
+    if (sel.value === '__new' && !$(id + '_name').value) $(id + '_name').value = nameInput.value.trim();
+  });
+  nameInput.addEventListener('change', auto);
+  auto();
+}
+/** 取得所選資料夾 ID；若選「建立新的」就先建立 */
+async function resolveFolder(id) {
+  const sel = $(id);
+  if (sel.value === '__new') {
+    const r = await run('createPersonFolder', $(id + '_name').value);
+    if (!B.folders.some(f => f.id === r.id)) {
+      B.folders.push(r);
+      sel.insertBefore(new Option(r.name, r.id), sel.querySelector('option[value="__new"]'));
+    }
+    sel.value = r.id;
+    $(id + '_name').classList.add('hidden');
+    return r.id;
+  }
+  if (!sel.value) throw new Error('請選擇你的個人資料夾');
+  return sel.value;
+}
+
+/** 逐一上傳檔案並顯示進度（先問伺服器是否已有同一檔案，有就不重複上傳） */
+async function uploadAll(files, meta, progEl) {
+  const results = [];
+  for (const f of files) {
+    const row = document.createElement('div');
+    row.textContent = '⏳ ' + f.name;
+    progEl.appendChild(row);
+    try {
+      const base = Object.assign({}, meta, { fileName: f.name, size: f.size, mimeType: f.type || 'application/octet-stream' });
+      let r = await run('uploadFile', base);
+      if (r.needData) {
+        if (f.size > B.maxMb * 1024 * 1024) {
+          row.textContent = `✖ ${f.name}：超過 ${B.maxMb} MB，請壓縮後再上傳，或直接放到雲端資料夾`;
+          continue;
+        }
+        r = await run('uploadFile', Object.assign(base, { data: await readB64(f) }));
+      }
+      row.innerHTML = (r.duplicate ? '↺ 已存在，未重複上傳：' : '✔ ') +
+        `<a href="${esc(r.url)}" target="_blank">${esc(r.name)}</a> <span class="muted">（${esc(r.folder)}，並已連結到 <a href="${esc(r.dateFolderUrl)}" target="_blank">${esc(meta.date)}</a>）</span>`;
+      results.push(r);
+    } catch (e) {
+      row.textContent = `✖ ${f.name}：${e.message}`;
+    }
+  }
+  return results;
+}
+
+/* ---------------- 頁面 ---------------- */
+
+const render = {
+  home() {
+    const n = B.upcoming[0];
+    $('app').innerHTML = `
+      <div class="card next">
+        <h2>下次會議</h2>
+        ${n ? `<div>${meetingLine(n)}</div>
+          ${n.presenters.length ? n.presenters.map(p => `<div class="pres"><b>${esc(p.name)}</b>：${esc(p.topic)}</div>`).join('')
+            : `<div class="muted">尚無人登記報告　<a href="${link('present', '&date=' + n.date)}">我要登記</a></div>`}` : '<div class="muted">尚無排定的會議</div>'}
+      </div>
+      <div class="grid">
+        <a class="tile" href="${link('present')}"><b>📝 報告登記</b><span class="muted">登記或取消報告、填寫主題</span></a>
+        <a class="tile" href="${link('upload')}"><b>📤 上傳資料</b><span class="muted">報告投影片、參考資料等，會前會後都在這裡上傳</span></a>
+        <a class="tile" href="${link('archive')}"><b>📂 會議資料</b><span class="muted">瀏覽歷次會議的報告與檔案</span></a>
+        <a class="tile" href="${link('schedule')}"><b>🗓 未來會議</b><span class="muted">未來每次會議的時間、地點與預計報告者</span></a>
+        <a class="tile" href="${link('weights')}"><b>🎲 抽籤權重</b><span class="muted">沒人登記時依權重抽籤，看看每個人的權重</span></a>
+        <a class="tile" href="${link('help')}"><b>📖 說明</b><span class="muted">這個系統怎麼運作：登記、抽籤、權重、上傳的所有規則</span></a>
+      </div>`;
+  },
+
+  subscribe() {
+    $('app').innerHTML = `<div class="card"><h2>加入通知名單</h2>
+      <p>新成員請聯絡管理者加入通知名單。加入後會收到歡迎信，之後每次會議前都會收到通知。</p></div>`;
+  },
+
+  present() {
+    const regs = [];
+    B.upcoming.forEach(m => m.presenters.filter(p => p.name).forEach(p => regs.push({ date: m.date, label: m.label, name: p.name, topic: p.topic, drawn: p.drawn, alone: m.presenters.filter(x => x.name).length < 2 })));
+    const manageFirst = ['cancel', 'move', 'manage'].includes(B.action);
+    const mode0 = B.action === 'cancel' ? 'cancel' : 'move';
+    const openDates = B.upcoming.filter(m => !m.cancelled);
+    const cancelCard = `
+      <div class="card">
+        <h2>改期或取消已登記的報告</h2>
+        <p class="muted">選擇要修改的登記，並輸入登記時填的 Email 確認身分。改期或取消都不影響抽籤權重（權重只在實際報告後才歸 0）。</p>
+        ${regs.length ? `<form id="cf">
+          <label>要修改的登記</label>
+          <select id="creg">${regs.map((r, i) => `<option value="${i}" ${r.date === B.date && r.name === B.name ? 'selected' : ''}>${esc(r.label)}｜${esc(r.name)}${r.topic ? '：' + esc(r.topic) : ''}${r.drawn ? (r.alone ? '（抽籤，暫時不能修改）' : '（抽籤，同場已有人登記，可修改）') : ''}</option>`).join('')}</select>
+          <label>要做什麼</label>
+          <select id="cmode">
+            <option value="move" ${mode0 === 'move' ? 'selected' : ''}>改到其他日期</option>
+            <option value="cancel" ${mode0 === 'cancel' ? 'selected' : ''}>取消這次報告</option>
+          </select>
+          <div id="cmovewrap"><label>改到哪一天</label>
+            <select id="cnew">${openDates.map(m => `<option value="${m.date}">${esc(m.label)}${m.presenters.length ? '｜' + esc(m.presenters.map(p => p.name).join('、')) : '（尚無人報告）'}</option>`).join('')}</select></div>
+          <label>登記時填的 Email</label><input type="email" id="cemail" required>
+          <button id="cbtn">確認</button>
+        </form>` : '<p class="muted">目前沒有已登記的報告。</p>'}
+        <div id="cmsg" class="msg"></div>
+      </div>`;
+    $('app').innerHTML = (manageFirst ? cancelCard : '') + `
+      <div class="card">
+        <h2>${B.backfill ? '補登報告' : '報告登記'}</h2>
+        ${B.backfill ? '<p class="msg ok" style="display:block">這是補登連結：請填寫您當天報告的主題等資訊並送出，送出後才會算您在這場會議報告過。</p>' : ''}
+        <p class="muted">資料還沒準備好也沒關係：可以先只填姓名、Email 登記日期，之後再用同樣的姓名回來補主題、摘要（留空的欄位不會清掉原本的內容），
+          或之後到「<a href="${link('upload')}">上傳資料</a>」頁上傳資料。</p>
+        <form id="f">
+          <label>會議日期</label>${B.backfill && B.date
+            ? `<select id="date"><option value="${B.date}">${esc((B.recent.find(m => m.date === B.date) || {}).label || B.date)}</option></select>
+               <input type="date" id="date_other" class="hidden">`
+            : dateSelect('date', B.upcoming, B.date)}
+          <label>報告者姓名</label><input type="text" id="name" value="${esc(B.name)}" required>
+          <label>報告者 Email <small>（姓名與 Email 都要和通知名單上的相同）</small></label><input type="email" id="email" required>
+          <label>報告主題 <small>（還沒決定可以先留空）</small></label><input type="text" id="topic" value="${esc(B.topic)}">
+          <label>摘要 <small>（選填）</small></label><textarea id="abstract"></textarea>
+          <label>參考資料連結 <small>（選填，一行一個網址，例如論文連結）</small></label><textarea id="refs" placeholder="https://..."></textarea>
+          <label>上傳資料 <small>（選填，可多選，每個檔案上限 ${B.maxMb} MB）</small></label><input type="file" id="files" multiple>
+          <div id="fwrap" class="hidden">
+            <label>上傳到哪個個人資料夾</label>${folderPicker('folder')}
+          </div>
+          <button id="btn">送出登記</button>
+        </form>
+        <div id="msg" class="msg"></div><div id="prog" class="prog"></div>
+      </div>` + (manageFirst ? '' : cancelCard);
+    bindDateSelect('date');
+    if ($('cf')) {
+      let armed = false;
+      const sync = () => {
+        armed = false;
+        const cancel = $('cmode').value === 'cancel';
+        $('cmovewrap').classList.toggle('hidden', cancel);
+        $('cbtn').textContent = cancel ? '取消這筆登記' : '改到這一天';
+        $('cbtn').style.background = cancel ? '#c62828' : '';
+      };
+      ['creg', 'cmode', 'cnew'].forEach(id => $(id).addEventListener('change', sync));
+      sync();
+      $('cf').onsubmit = async e => {
+        e.preventDefault();
+        if (!armed) { armed = true; $('cbtn').textContent = '確定？再按一次'; return; }
+        const r = regs[Number($('creg').value)];
+        if (!r) return;
+        $('cbtn').disabled = true;
+        try {
+          if ($('cmode').value === 'cancel') {
+            const res = await run('cancelPresentation', { date: r.date, name: r.name, email: $('cemail').value });
+            msg($('cmsg'), `已取消 ${esc(r.name)} 在 ${esc(res.label)} 的報告登記，確認信已寄出。`, true);
+          } else {
+            const res = await run('movePresentation', { date: r.date, name: r.name, email: $('cemail').value, newDate: $('cnew').value });
+            msg($('cmsg'), `已將 ${esc(r.name)} 的報告從 ${esc(r.label)} 改到 ${esc(res.label)}，確認信已寄出。`, true);
+          }
+          $('creg').querySelector(`option[value="${$('creg').value}"]`).remove();
+        } catch (err) { msg($('cmsg'), esc(err.message)); }
+        $('cbtn').disabled = false;
+        sync();
+      };
+    }
+    bindFolderPicker('folder', $('name'));
+    $('files').addEventListener('change', () => $('fwrap').classList.toggle('hidden', !$('files').files.length));
+    $('f').onsubmit = async e => {
+      e.preventDefault();
+      const date = dateVal('date');
+      if (!date) return msg($('msg'), '請選擇會議日期');
+      const files = [...$('files').files];
+      if (files.length && !$('folder').value) return msg($('msg'), '要上傳檔案，請先選擇你的個人資料夾');
+      $('btn').disabled = true; $('prog').innerHTML = ''; $('msg').className = 'msg';
+      try {
+        const form = { date, name: $('name').value, email: $('email').value, topic: $('topic').value, abstract: $('abstract').value, refs: $('refs').value, backfill: B.backfill };
+        const folderId = files.length ? await resolveFolder('folder') : '';
+        const r = await run('registerPresentation', form);
+        msg($('msg'), `已完成 ${esc(r.label)} 的報告登記！確認信已寄到您的信箱。`, true);
+        if (files.length) {
+          await uploadAll(files, { date, uploader: form.name, topic: form.topic, description: '', folderId }, $('prog'));
+          $('files').value = '';
+        }
+      } catch (err) { msg($('msg'), esc(err.message)); }
+      $('btn').disabled = false;
+    };
+  },
+
+  upload() {
+    const all = B.recent.concat(B.upcoming.filter(u => !B.recent.some(r => r.date === u.date)))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const def = B.date || (B.recent[0] || B.upcoming[0] || {}).date;
+    $('app').innerHTML = `
+      <div class="card">
+        <h2>上傳資料</h2>
+        <p class="muted">檔案會存到你的個人資料夾，檔名自動為「上傳者_主題_日期_原檔名」，並在 Group Meeting Details／該次會議日期資料夾中建立連結。已上傳過的相同檔案不會重複上傳。</p>
+        <form id="f">
+          <label>會議日期</label>${dateSelect('date', all, def)}
+          <label>上傳者姓名</label><input type="text" id="name" list="names" value="${esc(B.name)}" required>
+          <datalist id="names"></datalist>
+          <label>你的個人資料夾</label>${folderPicker('folder')}
+          <label>相關報告主題 <small>（選填）</small></label><input type="text" id="topic" list="topics" value="${esc(B.topic)}">
+          <datalist id="topics"></datalist>
+          <label>說明 <small>（選填）</small></label><input type="text" id="desc">
+          <label>檔案 <small>（可多選，每個檔案上限 ${B.maxMb} MB）</small></label><input type="file" id="files" multiple required>
+          <button id="btn">上傳</button>
+        </form>
+        <div id="msg" class="msg"></div><div id="prog" class="prog"></div>
+      </div>`;
+    const fill = () => {
+      const m = all.find(x => x.date === dateVal('date'));
+      const ps = m ? m.presenters : [];
+      $('names').innerHTML = ps.map(p => `<option value="${esc(p.name)}">`).join('');
+      $('topics').innerHTML = ps.map(p => `<option value="${esc(p.topic)}">`).join('');
+    };
+    bindDateSelect('date', fill); fill();
+    bindFolderPicker('folder', $('name'));
+    $('name').addEventListener('change', () => {
+      const m = all.find(x => x.date === dateVal('date'));
+      const p = m && m.presenters.find(p => p.name === $('name').value.trim());
+      if (p && !$('topic').value) $('topic').value = p.topic;
+    });
+    $('f').onsubmit = async e => {
+      e.preventDefault();
+      const date = dateVal('date');
+      if (!date) return msg($('msg'), '請選擇會議日期');
+      const files = [...$('files').files];
+      if (!files.length) return msg($('msg'), '請選擇檔案');
+      $('btn').disabled = true; $('prog').innerHTML = ''; $('msg').className = 'msg';
+      let folderId;
+      try { folderId = await resolveFolder('folder'); }
+      catch (err) { $('btn').disabled = false; return msg($('msg'), esc(err.message)); }
+      const ok = await uploadAll(files, { date, uploader: $('name').value, topic: $('topic').value, description: $('desc').value, folderId }, $('prog'));
+      msg($('msg'), `完成：${ok.length}/${files.length} 個檔案上傳成功。<a href="${link('archive')}">查看會議資料</a>`, ok.length === files.length);
+      $('files').value = '';
+      $('btn').disabled = false;
+    };
+  },
+
+  help() {
+    const q = (title, body) => `<div class="card"><h2>${title}</h2>${body}</div>`;
+    $('app').innerHTML = `
+      ${q('這個系統在做什麼', `
+        <p>管理 ${esc(B.group)} 的報告排程與資料：自動寄會議通知、讓大家自己登記報告、沒人登記時抽籤決定報告者、把報告資料整理到共用雲端硬碟。</p>
+        <p class="muted">固定會議時間：${B.upcoming[0] ? esc(B.upcoming[0].start) + '–' + esc(B.upcoming[0].end) + '　' + esc(B.upcoming[0].location) : '見「未來會議」頁'}。單週的調整（取消、改期、換教室）由管理者設定，並會寄信通知。</p>`)}
+
+      ${q('🔑 驗證碼', `
+        <ul>
+          <li>進入這個網站要輸入 6 碼驗證碼，附在<b>每次的會議通知信</b>裡。</li>
+          <li>每場會議第一次寄通知時會換一組新的，<b>上一組仍可使用到下次更換</b>。</li>
+          <li>同一個瀏覽器分頁內切換頁面不用重打；<b>關掉分頁後要重新輸入</b>。</li>
+          <li>新成員還沒收過通知信，請向管理者索取；加入名單時的歡迎信也會附上。</li>
+        </ul>`)}
+
+      ${q('👤 名單與身分', `
+        <ul>
+          <li><b>只有管理者能把人加入通知名單</b>，加入後會收到歡迎信。</li>
+          <li><b>姓名和 Email 兩個一起代表一個人</b>，名單上的姓名和 Email 都不會重複（同名的人會加註區別）。</li>
+          <li>登記報告時，填的姓名和 Email 必須和名單上<b>同一個人</b>的資料完全一致。</li>
+          <li>同一場會議，如果已經有人用了相同的姓名或 Email（但不是同一人），系統會拒絕登記。</li>
+          <li>不想再收到通知信：點通知信最下方的「取消訂閱」。</li>
+        </ul>`)}
+
+      ${q('📝 登記報告', `
+        <ul>
+          <li>到「<a href="${link('schedule')}">未來會議</a>」看哪幾場還沒人報告，再到「<a href="${link('present')}">報告登記</a>」選日期登記。未來 16 場都可以登記。</li>
+          <li><b>主題可以先留空</b>，之後用<b>同樣的姓名和 Email</b> 再送一次就會更新；留空的欄位不會清掉原本的內容。</li>
+          <li>登記後會收到確認信，裡面有補填主題、上傳資料、取消登記的連結。</li>
+          <li>同一場可以有多位報告者。</li>
+          <li><b>不能登記已經過去的會議。</b>如果當天實際有報告卻沒登記，請管理者寄補登連結給你；管理者一寄出就算你報告過，連結是用來補上主題與資料。</li>
+        </ul>`)}
+
+      ${q('🔁 改期與取消', `
+        <ul>
+          <li>在「<a href="${link('present')}">報告登記</a>」頁下方的「改期或取消已登記的報告」操作，要輸入<b>登記時填的 Email</b> 確認身分。</li>
+          <li>改期會把主題、摘要、參考連結一起帶到新日期。</li>
+          <li><b>自願登記的人</b>隨時可以改期或取消。</li>
+          <li><b>抽籤選出的人不行</b>，除非同一場已經有其他人登記報告（避免那場沒人報告）。有人自願登記同場時，系統會寄信通知被抽中的人，這時他才能改期或取消。</li>
+          <li>如果那個自願的人後來又取消，<b>被抽中的人會被放回原本那場</b>（並移除他改去的新登記），一樣不能自行更動。</li>
+          <li>改期、取消都<b>不影響抽籤權重</b>，權重只在實際報告後才歸 0。</li>
+        </ul>`)}
+
+      ${q('🎲 抽籤規則', `
+        <ul>
+          <li><b>時機</b>：每次會議結束的<b>隔天中午</b>。如果下一場會議<b>完全沒有人登記</b>，就從抽籤池抽一個人，並寄信通知他。</li>
+          <li>隔一天才抽，是為了讓管理者有時間處理「登記了卻沒報告」和「沒登記卻有報告」的狀況。</li>
+          <li><b>抽籤池</b>：通知名單中訂閱中、且參與抽籤的人（老師、旁聽者不列入）。<b>已經排定未來報告的人不會被抽到。</b></li>
+          <li><b>機率</b>：依<a href="${link('weights')}">權重</a>決定，權重越大越容易被抽中；<b>權重 0 的人抽不到</b>。</li>
+          <li>如果所有候選人的權重都是 0，則排除<b>最近一個月內報告過</b>的人，其餘平均抽。</li>
+          <li>被抽中的人仍要登記報告主題（信裡有連結）。</li>
+          <li><b>抽中卻沒報告</b>（自行取消，或實際沒報告）：下次再沒人登記時<b>不重抽</b>，直接還是由他報告，並寄信通知。一直持續到他真的報告完，之後才會重新抽籤。</li>
+        </ul>`)}
+
+      ${q('⚖️ 權重怎麼算', `
+        <p>每個人各自計算，可在「<a href="${link('weights')}">抽籤權重</a>」頁查看。</p>
+        <table class="wt">
+          <tr><th>距離上次報告</th><th>每開一次會增加</th></tr>
+          <tr><td>兩個月內</td><td>0（維持 0，抽不到）</td></tr>
+          <tr><td>兩到四個月</td><td>+0.5</td></tr>
+          <tr><td>四到六個月</td><td>+1</td></tr>
+          <tr><td>六個月以上</td><td>+2</td></tr>
+        </table>
+        <ul>
+          <li><b>報告完後歸 0</b>，重新累積。「一個月」是日曆月；累積是以<b>實際開過的會議</b>為單位，取消的會議不算，所以同一段期間加入的人權重會一致。</li>
+          <li><b>沒有報告紀錄的人</b>（新成員）：視為在加入日的兩個月前報告過，加入時權重為管理者設定的初始值（預設 0.5），之後每開一次會 +0.5。</li>
+          <li><b>登記了卻實際沒報告</b>：管理者標記後，那次不算報告，權重不會歸 0，而且你會收到信請你改登記其他日期。</li>
+          <li><b>沒完成會議記錄</b>：管理者標記後，該位會議記錄的權重 <b>+1</b>（會收到通知信），這個加權一直計入，直到他下次實際報告為止。</li>
+          <li><b>沒登記卻實際有報告</b>：管理者寄出補登連結時，就表示他確認你有報告，<b>當下就算你報告過、權重歸 0</b>；信中的連結是用來補上主題與上傳資料。</li>
+          <li>會議取消、改期、自行取消或改期，都不算報告過。</li>
+        </ul>`)}
+
+      ${q('📅 會議異動', `
+        <ul>
+          <li>管理者取消、改期或改時間後，系統會寄信通知；如果大家已經收過那場的通知，會再寄一封標示【異動】的更新通知。</li>
+          <li><b>自願登記的報告者</b>：登記會被取消，收到信請他重新登記（信中可一鍵改登記到新時間，或選其他日期）。</li>
+          <li><b>抽籤選出的報告者</b>：不會被取消，而是延到下一次——會議取消就延到之後第一場沒取消的會議，改期就跟著新日期，改時間就留在同一場。</li>
+          <li>只換教室不算異動，登記不受影響。</li>
+        </ul>`)}
+
+      ${q('📝 會議記錄（輪值）', `
+        <ul>
+          <li>每場會議都會指定一位<b>會議記錄</b>，依「通知名單」的順序輪流，大家都會輪到。</li>
+          <li>指定結果寫在<b>會議通知信</b>裡，也可以在「<a href="${link('schedule')}">未來會議</a>」頁看到。</li>
+          <li><b>無法擔任</b>：點通知信中你專屬的「我無法擔任，換下一位」連結。系統會<b>立刻換成下一位</b>並單獨寄信通知他；他如果也不行，一樣可以再換下一位。</li>
+          <li>系統會盡量避開當天要報告的人，也不會讓同一個人同時負責多場。</li>
+          <li><b>會議結束後</b>，最後確定的那位會收到提醒信，請把會議記錄上傳到雲端（和其他資料一樣在「<a href="${link('upload')}">上傳資料</a>」頁）。</li>
+          <li><b>沒有完成會議記錄</b>：管理者標記後，系統會寄信通知你，並把你的<b>抽籤權重 +1</b>（被抽中報告的機率提高），直到你下次實際報告為止。</li>
+        </ul>`)}
+
+      ${q('📤 上傳資料', `
+        <ul>
+          <li>會前的參考資料、會後的投影片，都在「<a href="${link('upload')}">上傳資料</a>」頁上傳，不分會前會後。</li>
+          <li>上傳時要選<b>以自己名字命名的資料夾</b>；沒有的話可以當場建立一個。</li>
+          <li>檔案存在你的個人資料夾，檔名會自動變成 <code>上傳者_主題_日期_原檔名</code>，會議日期、上傳者、主題、說明也會寫進檔案的「說明」欄。</li>
+          <li>同一份檔案<b>只會存一份</b>：會議日期資料夾裡放的是指向它的連結（捷徑），所以兩個地方都找得到。重複上傳同一個檔案不會再傳一次。</li>
+          <li>單一檔案上限 ${B.maxMb} MB。更大的檔案請壓縮，或直接放到雲端硬碟。</li>
+          <li>所有資料可在「<a href="${link('archive')}">會議資料</a>」頁依日期瀏覽、搜尋。要開啟檔案需要有共用雲端硬碟的權限。</li>
+          <li>會議結束時，當天的報告者會收到上傳提醒信。</li>
+        </ul>`)}
+
+      ${q('✉️ 你會收到哪些信', `
+        <ul>
+          <li><b>會議通知</b>：每場會議前幾天寄出，含時間、地點、報告者、主題、會議記錄是誰、已上傳的資料，以及最新的驗證碼。</li>
+          <li><b>會議記錄輪到你</b>：前一位婉拒、換到你時寄出。</li>
+          <li><b>未完成會議記錄</b>：被標記未完成時寄出，同時權重 +1。</li>
+          <li><b>未進行報告</b>：你登記了卻沒報告、被標記後寄出，請你改登記其他日期。</li>
+          <li><b>遞補報告</b>：上次抽中卻沒報告、這次沒人登記而由你遞補時寄出。</li>
+          <li><b>報告登記確認信</b>：登記或補登後寄給自己。</li>
+          <li><b>抽籤通知</b>：被抽中時。</li>
+          <li><b>上傳提醒</b>：會議結束時寄給當天的報告者和會議記錄。</li>
+          <li><b>異動通知</b>：會議取消、改期、改時間，或你的登記因此變動時。</li>
+          <li><b>補登通知</b>：你有報告但系統上沒有登記時。</li>
+        </ul>`)}
+
+      ${q('❓ 常見問題', `
+        <ul>
+          <li><b>忘記驗證碼</b>：看最近一封會議通知信，或向管理者索取。</li>
+          <li><b>進不去網站</b>：瀏覽器同時登入多個 Google 帳號時可能會打不開，改用無痕視窗。</li>
+          <li><b>打不開上傳的檔案</b>：需要共用雲端硬碟的權限，請找管理者。</li>
+          <li><b>登記被拒絕</b>：確認姓名和 Email 和名單上的完全一致；或那場已經有人用了相同的姓名或 Email。</li>
+          <li><b>其他問題</b>：請聯絡管理者，他可以直接在後台的試算表調整。</li>
+        </ul>`)}`;
+  },
+
+  async schedule() {
+    $('app').innerHTML = `<div class="card"><h2>未來會議計畫</h2>
+      <p class="muted">想報告的人可以預先登記任何一場。若會議結束時下次會議仍無人登記，系統會依<a href="${link('weights')}">抽籤權重</a>自動抽一人。</p></div>
+      <div id="list" class="muted">載入中…</div>`;
+    let data;
+    try { data = await run('getSchedule'); }
+    catch (e) { $('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; return; }
+    $('list').className = '';
+    $('list').innerHTML = data.map(m => `
+      <div class="card">
+        <h2>${esc(m.label)} ${m.cancelled ? '<span class="cancel">取消</span>'
+          : `<span class="muted">${esc(m.start)}–${esc(m.end)} @ ${esc(m.location)}</span>`}</h2>
+        ${m.movedFrom.length ? `<div class="muted" style="color:#e65100">⚠ 由 ${esc(m.movedFrom.join('、'))} 改期</div>` : ''}
+        ${m.cancelled ? '' : `<div class="muted">會議記錄：${m.noter ? esc(m.noter) : '尚未指派'}</div>`}
+        ${m.cancelled ? '' : (m.presenters.length
+          ? m.presenters.map(p => `<div class="pres"><b>${esc(p.name)}</b>${p.drawn ? ' <span class="tag">抽籤</span>' : ''}：${esc(p.topic || '（主題待定）')}
+            <a class="muted" style="float:right" href="${link('present', '&action=manage&date=' + m.date + '&name=' + encodeURIComponent(p.name))}">改期／取消</a></div>`).join('')
+          : `<div class="muted">尚無人登記　<a href="${link('present', '&date=' + m.date)}">我要報告</a></div>`)}
+        ${m.note ? `<div class="muted">備註：${esc(m.note)}</div>` : ''}
+      </div>`).join('');
+  },
+
+  async weights() {
+    $('app').innerHTML = `<div class="card"><h2>抽籤權重</h2>
+      <p class="muted">會議結束時，若下次會議沒有人登記報告，系統會從抽籤池依權重隨機抽一人（權重越大越容易抽中；已排定報告的人不參加抽籤）。<br>
+      權重規則：報告後歸 0；兩個月內維持 0；之後<b>每開一次會</b> +0.5，滿四個月後每次 +1，滿六個月後每次 +2（取消的會議不算）。沒有「加入前兩個月內或加入後」報告紀錄的人，視為在加入日的兩個月前報告過，初始權重預設 0.5。<br>
+      若有<b>待補報告</b>的人（被抽中卻沒報告），下次沒人登記時直接由他遞補，不會抽籤。</p>
+      <div id="list" class="muted">載入中…</div></div>`;
+    let data;
+    try { data = await run('getWeights'); }
+    catch (e) { $('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; return; }
+    const people = data.people || data, pending = data.pending || [];
+    const max = Math.max(1, ...people.map(p => p.weight));
+    $('list').className = '';
+    $('list').innerHTML = (pending.length ? `<div class="msg ok" style="display:block;margin-bottom:12px">
+        ⏭ <b>待補報告：${pending.map(x => esc(x.name)).join('、')}</b><br>
+        <span class="muted">${esc(pending[0].name)} 先前被抽中卻沒有報告（${esc(pending[0].reason)}），
+        下次會議若沒有人登記，會直接由他報告，不會抽籤；直到他實際報告完為止。</span>
+      </div>` : '') +
+      (people.length ? `<table class="wt">
+      <tr><th>姓名</th><th>上次報告</th><th style="text-align:right">權重</th><th>下次被抽中機率</th></tr>
+      ${people.map(p => `<tr>
+        <td>${esc(p.name)}${p.pending ? ' <span class="tag">待補報告</span>' : ''}</td>
+        <td class="muted">${esc(p.last || '尚未報告')}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums"><b>${p.weight}</b>${p.penalty ? `<br><span class="muted">含未做記錄 +${p.penalty}</span>` : ''}</td>
+        <td>${p.scheduled ? `<span class="tag">已排定 ${esc(p.scheduled)}</span>`
+          : `<div class="bar"><span style="width:${(p.weight / max * 100).toFixed(1)}%"></span></div><span class="muted">${(p.prob * 100).toFixed(1)}%</span>`}</td>
+      </tr>`).join('')}</table>` : '<div class="muted">抽籤池目前沒有人</div>');
+  },
+
+  async archive() {
+    $('app').innerHTML = `<input type="text" id="search" placeholder="搜尋日期、報告者、主題、檔名…"><div id="list" class="muted">載入中…</div>`;
+    let data;
+    try { data = await run('getArchive'); }
+    catch (e) { $('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; return; }
+    const draw = () => {
+      const q = $('search').value.trim().toLowerCase();
+      const shown = data.filter(m => !q || JSON.stringify(m).toLowerCase().includes(q));
+      $('list').className = '';
+      $('list').innerHTML = shown.length ? shown.map(m => `
+        <div class="card">
+          <h2>${esc(m.label)} ${m.cancelled ? '<span class="cancel">取消</span>' : `<span class="muted">${esc(m.start)}–${esc(m.end)} @ ${esc(m.location)}</span>`}</h2>
+          ${m.presenters.map(p => `<div class="pres"><b>${esc(p.name)}</b>${p.noShow ? ' <span class="tag">實際未報告</span>' : ''}：${esc(p.topic)}
+            ${p.refs ? `<div class="muted">${p.refs.split(/\s+/).filter(Boolean).map(u => /^https?:/i.test(u) ? `<a href="${esc(u)}" target="_blank">${esc(u)}</a>` : esc(u)).join('<br>')}</div>` : ''}</div>`).join('')}
+          ${m.note ? `<div class="muted">備註：${esc(m.note)}</div>` : ''}
+          ${m.files.length ? `<ul class="files">${m.files.map(f => `<li><a href="${esc(f.url)}" target="_blank">${esc(f.name)}</a>
+              <span class="muted">— ${esc(f.uploader)}${f.desc ? '，' + esc(f.desc) : ''}</span></li>`).join('')}</ul>`
+            : '<div class="muted">尚無上傳檔案</div>'}
+          <div style="margin-top:8px"><a href="${link('upload', '&date=' + m.date)}">＋ 上傳檔案到這場會議</a></div>
+        </div>`).join('') : '<div class="muted">沒有符合的資料</div>';
+    };
+    $('search').addEventListener('input', draw);
+    draw();
+  },
+};
+
+/* ---------------- 驗證碼 ---------------- */
+
+function showGate(err) {
+  $('app').innerHTML = `
+    <div class="card" style="max-width:420px;margin:40px auto">
+      <h2>🔑 請輸入驗證碼</h2>
+      <p class="muted">驗證碼附在每次的會議通知信中（每次會議更新）。沒有收到信或找不到驗證碼，請向管理者索取${SHELL.admin ? '：<br>' + esc(SHELL.admin) : ''}。</p>
+      <form id="gf">
+        <input type="text" id="gcode" autocomplete="off" autocapitalize="characters" spellcheck="false"
+          style="text-transform:uppercase;letter-spacing:4px;font-size:20px;text-align:center" required>
+        <button id="gbtn" style="width:100%">進入</button>
+      </form>
+      <div class="msg ${err ? 'err' : ''}">${esc(err || '')}</div>
+    </div>`;
+  $('gf').onsubmit = e => { e.preventDefault(); enter($('gcode').value.trim().toUpperCase()); };
+  $('gcode').focus();
+}
+
+async function enter(code) {
+  CODE = code;
+  if ($('gbtn')) $('gbtn').disabled = true;
+  try {
+    const boot = await callApi('getBoot', [SHELL.page, SHELL.params], code);
+    try { sessionStorage.setItem('gm_code', code); } catch (e) {}  // 同一個分頁切換頁面時不用重打；關掉分頁就要重新輸入
+    B = Object.assign({}, SHELL, boot, { url: SHELL.url });   // 連結一律指向這個網站
+    renderNav();
+    (render[B.page] || render.home)();
+  } catch (e) {
+    forgetCode();
+    showGate(e && e.message ? e.message : String(e));
+  }
+}
+
+/* ---------------- 啟動 ---------------- */
+
+/* 信件連結：取消訂閱／婉拒會議記錄（用信裡的 token，不需要驗證碼） */
+
+async function tokenPage(kind) {
+  const label = kind === 'unsubscribe' ? '取消訂閱' : '婉拒會議記錄';
+  if (!SHELL.token || !SHELL.email) {
+    $('app').innerHTML = `<div class="card"><h2>連結無效</h2><p>請改用信件中的連結，或聯絡管理者。</p></div>`;
+    return;
+  }
+  const dateTxt = SHELL.params.date ? esc(SHELL.params.date) + ' 的' : '';
+  $('app').innerHTML = `
+    <div class="card" style="max-width:460px;margin:30px auto;text-align:center">
+      <h2>${label}</h2>
+      <p>${kind === 'unsubscribe'
+        ? `確定要讓 ${esc(SHELL.email)} 不再收到會議通知嗎？`
+        : `確定要婉拒擔任 ${dateTxt}會議記錄嗎？系統會立刻換下一位並寄信通知他。`}</p>
+      <button id="tb" style="background:#c62828">確定${label}</button>
+      <div id="tm" class="msg"></div>
+    </div>`;
+  $('tb').onclick = async () => {
+    $('tb').disabled = true;
+    try {
+      const r = kind === 'unsubscribe'
+        ? await callApi('unsubscribe', [SHELL.email, SHELL.token], '')
+        : await callApi('declineNoter', [SHELL.params.date, SHELL.email, SHELL.token], '');
+      msg($('tm'), esc(r.msg), true);
+    } catch (e) { msg($('tm'), esc(e.message)); $('tb').disabled = false; }
+  };
+}
+
+if (SHELL.page === 'unsubscribe' || SHELL.page === 'noter') {
+  tokenPage(SHELL.page);
+} else {
+  let saved = '';
+  try { saved = sessionStorage.getItem('gm_code') || ''; } catch (e) {}
+  if (saved) { $('app').innerHTML = '<div class="muted">載入中…</div>'; enter(saved); }
+  else showGate('');
+}
+
+
+</script>
+</body>
+</html>
