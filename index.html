@@ -125,7 +125,7 @@ const run = (fn, ...args) => callApi(fn, args).catch(err => {
 
 const PAGES = [
   ['home', '首頁'], ['schedule', '未來會議'], ['present', '報告登記'], ['upload', '上傳資料'], ['archive', '會議資料'],
-  ['weights', '抽籤權重'], ['help', '說明'],
+  ['weights', '抽籤權重'], ['duty', '值日生'], ['food', '吃飯抽籤'], ['help', '說明'],
 ];
 
 document.title = B.group;
@@ -301,6 +301,8 @@ const render = {
         <a class="tile" href="${link('archive')}"><b>📂 會議資料</b><span class="muted">瀏覽歷次會議的報告與檔案</span></a>
         <a class="tile" href="${link('schedule')}"><b>🗓 未來會議</b><span class="muted">未來每次會議的時間、地點與預計報告者</span></a>
         <a class="tile" href="${link('weights')}"><b>🎲 抽籤權重</b><span class="muted">沒人登記時依權重抽籤，看看每個人的權重</span></a>
+        <a class="tile" href="${link('duty')}"><b>🧹 值日生</b><span class="muted">本週輪到誰、工作內容與紀錄</span></a>
+        <a class="tile" href="${link('food')}"><b>🍜 吃飯抽籤</b><span class="muted">今天吃什麼？從店家清單隨機抽一家</span></a>
         <a class="tile" href="${link('help')}"><b>📖 說明</b><span class="muted">這個系統怎麼運作：登記、抽籤、權重、上傳的所有規則</span></a>
       </div>`;
   },
@@ -479,6 +481,101 @@ const render = {
     };
   },
 
+  async duty() {
+    $('app').innerHTML = `<div class="card"><h2>值日生</h2><div id="d" class="muted">載入中…</div></div>`;
+    let d;
+    try { d = await run('getDuty'); }
+    catch (e) { $('d').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; return; }
+    $('d').className = '';
+    $('d').innerHTML = `
+      <div class="next" style="font-size:16px">
+        <div class="muted">${esc(d.weekLabel)}</div>
+        ${d.current
+          ? `<div style="font-size:20px;margin:6px 0"><b>${esc(d.current.name)}</b>
+               ${d.current.done ? '<span class="tag" style="background:#e8f5e9;color:#2e7d32">已完成</span>'
+                                : '<span class="tag">待完成</span>'}</div>
+             ${d.current.note ? `<div class="muted">${esc(d.current.note)}</div>` : ''}`
+          : '<div class="muted">本週尚未指派</div>'}
+      </div>
+      ${d.tasks.length ? `<h3 style="margin:18px 0 6px;font-size:15px">工作內容</h3>
+        <ul class="files">${d.tasks.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+      <p class="muted" style="margin-top:14px">每週輪流一位，<b>不能拒絕</b>。完成後要由管理者確認才算完成；
+        若沒有確認，下一週仍由同一個人繼續擔任。</p>
+      ${d.history.length ? `<h3 style="margin:18px 0 6px;font-size:15px">紀錄</h3>
+        <table class="wt">
+          <tr><th>值日週</th><th>值日生</th><th>狀態</th></tr>
+          ${d.history.map(h => `<tr><td>${esc(h.week)}</td><td>${esc(h.name)}</td>
+            <td>${h.done ? '<span class="tag" style="background:#e8f5e9;color:#2e7d32">已完成</span>'
+                         : '<span class="tag">待完成</span>'}${h.note ? ` <span class="muted">${esc(h.note)}</span>` : ''}</td></tr>`).join('')}
+        </table>` : ''}`;
+  },
+
+  async food() {
+    $('app').innerHTML = `
+      <div class="card" style="text-align:center">
+        <h2>今天吃什麼？</h2>
+        <div id="pick" class="muted" style="font-size:22px;margin:18px 0">按下面的按鈕抽一家</div>
+        <button id="draw" style="font-size:18px;padding:12px 30px">🍜 抽一家</button>
+      </div>
+      <div class="card">
+        <h2>店家清單</h2>
+        <div id="list" class="muted">載入中…</div>
+        <form id="af" style="margin-top:14px">
+          <label>新增店家</label>
+          <input type="text" id="fname" placeholder="店名" required>
+          <input type="text" id="fnote" placeholder="備註或網址（選填）" style="margin-top:6px">
+          <button id="ab">加入清單</button>
+        </form>
+        <div id="fmsg" class="msg"></div>
+      </div>
+      <div class="card"><h2>最近抽到</h2><div id="recent" class="muted">—</div></div>`;
+
+    const link2 = t => /^https?:\/\//i.test(t) ? `<a href="${esc(t)}" target="_blank">${esc(t)}</a>` : esc(t);
+    const drawList = list => {
+      $('list').className = '';
+      $('list').innerHTML = list.length ? `<ul class="files">${list.map(f => `<li>${esc(f.name)}
+        ${f.note ? ` <span class="muted">${link2(f.note)}</span>` : ''}
+        <a href="#" class="muted" data-del="${esc(f.name)}" style="float:right">移除</a></li>`).join('')}</ul>`
+        : '<div class="muted">清單是空的，先加幾家店吧</div>';
+      [...$('list').querySelectorAll('a[data-del]')].forEach(a => a.onclick = async e => {
+        e.preventDefault();
+        try { const r = await run('removeFood', { name: a.dataset.del }); drawList(r.list); msg($('fmsg'), esc(r.msg), true); }
+        catch (err) { msg($('fmsg'), esc(err.message)); }
+      });
+    };
+    const drawRecent = recent => {
+      $('recent').innerHTML = recent.length
+        ? `<ul class="files">${recent.map(r => `<li>${esc(r.name)}
+            <span class="muted">${esc(r.time || '')}${r.by ? '　' + esc(r.by) : ''}</span></li>`).join('')}</ul>`
+        : '—';
+    };
+
+    try { const d = await run('getFood'); drawList(d.list); drawRecent(d.recent); }
+    catch (e) { $('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+
+    $('draw').onclick = async () => {
+      $('draw').disabled = true;
+      $('pick').textContent = '抽籤中…';
+      try {
+        const r = await run('drawFood');
+        $('pick').className = '';
+        $('pick').innerHTML = `🎉 <b>${esc(r.pick.name)}</b>${r.pick.note ? `<div class="muted" style="font-size:14px">${link2(r.pick.note)}</div>` : ''}`;
+        drawRecent(r.recent);
+      } catch (e) { $('pick').className = 'msg err'; $('pick').textContent = e.message; }
+      $('draw').disabled = false;
+    };
+    $('af').onsubmit = async e => {
+      e.preventDefault();
+      $('ab').disabled = true;
+      try {
+        const r = await run('addFood', { name: $('fname').value, note: $('fnote').value });
+        drawList(r.list); msg($('fmsg'), esc(r.msg), true);
+        $('fname').value = ''; $('fnote').value = '';
+      } catch (err) { msg($('fmsg'), esc(err.message)); }
+      $('ab').disabled = false;
+    };
+  },
+
   help() {
     const q = (title, body) => `<div class="card"><h2>${title}</h2>${body}</div>`;
     $('app').innerHTML = `
@@ -599,6 +696,13 @@ const render = {
           <li><b>上傳提醒</b>：會議結束時寄給當天的報告者和會議記錄。</li>
           <li><b>異動通知</b>：會議取消、改期、改時間，或你的登記因此變動時。</li>
           <li><b>補登通知</b>：你有報告但系統上沒有登記時。</li>
+        </ul>`)}
+
+      ${q('🧹 值日生與 🍜 吃飯抽籤', `
+        <ul>
+          <li><b>值日生</b>：每週輪流一位，依通知名單順序，<b>不能拒絕</b>。輪到時會收到通知信，上面有工作內容。</li>
+          <li>完成後要由<b>管理者確認</b>才算完成；沒有確認的話，下一週仍由同一個人繼續擔任。</li>
+          <li><b>吃飯抽籤</b>：大家都可以在清單裡新增或移除店家，按一下就隨機抽一家（會盡量避開最近抽過的）。</li>
         </ul>`)}
 
       ${q('❓ 常見問題', `
