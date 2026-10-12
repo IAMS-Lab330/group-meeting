@@ -509,7 +509,7 @@ const render = {
           <li><b>沒有報告紀錄的人</b>（新成員）：視為在加入日的兩個月前報告過，加入時權重為管理者設定的初始值（預設 0.5），之後每開一次會 +0.5。</li>
           <li><b>登記了卻實際沒報告</b>：管理者標記後，那次不算報告，權重不會歸 0，而且你會收到信請你改登記其他日期。</li>
           <li><b>沒完成會議記錄</b>：管理者標記後，該位會議記錄的權重 <b>+1</b>（會收到通知信），這個加權一直計入，直到他下次實際報告為止。</li>
-          <li><b>沒登記卻實際有報告</b>：管理者寄出補登連結時，就表示他確認你有報告，<b>當下就算你報告過、權重歸 0</b>；信中的連結是用來補上主題與上傳資料。</li>
+          <li><b>沒登記卻實際有報告</b>：管理者寄出補登連結時就算你報告過，但因為事前沒登記，權重是<b>減半</b>（不是歸 0），之後從那場會議起照常累積；信中的連結是用來補上主題與上傳資料。</li>
           <li>會議取消、改期、自行取消或改期，都不算報告過。</li>
         </ul>`)}
 
@@ -611,7 +611,7 @@ const render = {
       ${people.map(p => `<tr>
         <td>${esc(p.name)}${p.pending ? ' <span class="tag">待補報告</span>' : ''}</td>
         <td class="muted">${esc(p.last || '尚未報告')}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums"><b>${p.weight}</b>${p.penalty ? `<br><span class="muted">含未做記錄 +${p.penalty}</span>` : ''}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums"><b>${p.weight}</b>${p.penalty ? `<br><span class="muted">含未做記錄 +${p.penalty}</span>` : ''}${p.carry ? `<br><span class="muted">含未登記報告保留 +${p.carry}</span>` : ''}</td>
         <td>${p.scheduled ? `<span class="tag">已排定 ${esc(p.scheduled)}</span>`
           : `<div class="bar"><span style="width:${(p.weight / max * 100).toFixed(1)}%"></span></div><span class="muted">${(p.prob * 100).toFixed(1)}%</span>`}</td>
       </tr>`).join('')}</table>` : '<div class="muted">抽籤池目前沒有人</div>');
