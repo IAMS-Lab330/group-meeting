@@ -406,7 +406,21 @@ const render = {
           <button id="btn">上傳</button>
         </form>
         <div id="msg" class="msg"></div><div id="prog" class="prog"></div>
+        <hr style="border:none;border-top:1px solid var(--line);margin:18px 0 12px">
+        <p class="muted">這次報告沒有投影片或任何資料？按下面的按鈕，就不會被視為未上傳（報告後一週內沒上傳資料會使權重 +1）。</p>
+        <button id="nomat" style="background:#fff;color:var(--c);border:1px solid var(--c);margin-top:0">此次報告沒有相關資料</button>
+        <div id="nmsg" class="msg"></div>
       </div>`;
+    let nmArmed = false;
+    $('nomat').onclick = async () => {
+      const date = dateVal('date');
+      if (!date) return msg($('nmsg'), '請先選擇會議日期');
+      if (!nmArmed) { nmArmed = true; $('nomat').textContent = `確定 ${date} 沒有資料要上傳？再按一次`; return; }
+      $('nomat').disabled = true;
+      try { msg($('nmsg'), esc(await run('markNoMaterials', { date })), true); }
+      catch (e) { msg($('nmsg'), esc(e.message)); }
+      nmArmed = false; $('nomat').textContent = '此次報告沒有相關資料'; $('nomat').disabled = false;
+    };
     const fill = () => {
       const m = all.find(x => x.date === dateVal('date'));
       const ps = m ? m.presenters : [];
@@ -509,6 +523,8 @@ const render = {
           <li><b>沒有報告紀錄的人</b>（新成員）：視為在加入日的兩個月前報告過，加入時權重為管理者設定的初始值（預設 0.5），之後每開一次會 +0.5。</li>
           <li><b>登記了卻實際沒報告</b>：管理者標記後，那次不算報告，權重不會歸 0，而且你會收到信請你改登記其他日期。</li>
           <li><b>沒完成會議記錄</b>：管理者標記後，該位會議記錄的權重 <b>+1</b>（會收到通知信），這個加權一直計入，直到他下次實際報告為止。</li>
+          <li><b>登記了卻沒報告</b>：除了那次不算報告之外，權重另外 <b>+1</b>（抽籤選出的人不加權，改用待補報告處理）。</li>
+          <li><b>報告後一週內沒上傳資料</b>：權重 <b>+1</b>。若這次確實沒有資料，到「<a href="${link('upload')}">上傳資料</a>」頁按「此次報告沒有相關資料」即可，視同已上傳。</li>
           <li><b>沒登記卻實際有報告</b>：管理者寄出補登連結時就算你報告過，但因為事前沒登記，權重是<b>減半</b>（不是歸 0），之後從那場會議起照常累積；信中的連結是用來補上主題與上傳資料。</li>
           <li>會議取消、改期、自行取消或改期，都不算報告過。</li>
         </ul>`)}
@@ -593,7 +609,9 @@ const render = {
     $('app').innerHTML = `<div class="card"><h2>抽籤權重</h2>
       <p class="muted">會議結束時，若下次會議沒有人登記報告，系統會從抽籤池依權重隨機抽一人（權重越大越容易抽中；已排定報告的人不參加抽籤）。<br>
       權重規則：報告後歸 0；兩個月內維持 0；之後<b>每開一次會</b> +0.5，滿四個月後每次 +1，滿六個月後每次 +2（取消的會議不算）。沒有「加入前兩個月內或加入後」報告紀錄的人，視為在加入日的兩個月前報告過，初始權重預設 0.5。<br>
-      若有<b>待補報告</b>的人（被抽中卻沒報告），下次沒人登記時直接由他遞補，不會抽籤。</p>
+      若有<b>待補報告</b>的人（被抽中卻沒報告），下次沒人登記時直接由他遞補，不會抽籤。<br>
+      會使權重增加的情況：沒完成會議記錄 +1、登記了卻沒報告 +1、報告後一週內沒上傳資料 +1（可在上傳頁按「此次報告沒有相關資料」免除）；
+      沒有事先登記就報告的人，該次權重<b>減半</b>而不是歸 0。詳見<a href="${link('help')}">說明</a>頁。</p>
       <div id="list" class="muted">載入中…</div></div>`;
     let data;
     try { data = await run('getWeights'); }
