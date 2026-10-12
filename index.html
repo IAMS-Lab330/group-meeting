@@ -432,6 +432,7 @@ const render = {
           <label>相關報告主題 <small>（選填）</small></label><input type="text" id="topic" list="topics" value="${esc(B.topic)}">
           <datalist id="topics"></datalist>
           <label>說明 <small>（選填）</small></label><input type="text" id="desc">
+          <label style="font-weight:normal"><input type="checkbox" id="kind"> 這是<b>會議記錄</b>（自己寫好的檔案，上傳後會顯示為該場的會議記錄）</label>
           <label>檔案 <small>（可多選，每個檔案上限 ${B.maxMb} MB）</small></label><input type="file" id="files" multiple required>
           <button id="btn">上傳</button>
         </form>
@@ -474,7 +475,8 @@ const render = {
       let folderId;
       try { folderId = await resolveFolder('folder'); }
       catch (err) { $('btn').disabled = false; return msg($('msg'), esc(err.message)); }
-      const ok = await uploadAll(files, { date, uploader: $('name').value, topic: $('topic').value, description: $('desc').value, folderId }, $('prog'));
+      const ok = await uploadAll(files, { date, uploader: $('name').value, topic: $('topic').value,
+        description: $('desc').value, folderId, kind: $('kind').checked ? 'minutes' : '' }, $('prog'));
       msg($('msg'), `完成：${ok.length}/${files.length} 個檔案上傳成功。<a href="${link('archive')}">查看會議資料</a>`, ok.length === files.length);
       $('files').value = '';
       $('btn').disabled = false;
@@ -669,7 +671,7 @@ const render = {
           <li><b>無法擔任</b>：點通知信中你專屬的「我無法擔任，換下一位」連結。系統會<b>立刻換成下一位</b>並單獨寄信通知他；他如果也不行，一樣可以再換下一位。</li>
           <li>系統會盡量避開當天要報告的人，也不會讓同一個人同時負責多場。</li>
           <li>系統會自動幫每場會議建好一份<b>會議記錄模板</b>（Google 文件，已填好日期、時間、地點、報告者與主題），連結在會議通知信和指派通知信裡，直接線上編輯即可。</li>
-          <li><b>會議結束後</b>，記錄者會收到提醒信；寫在模板上就完成了，若是自己另外寫的，請到「<a href="${link('upload')}">上傳資料</a>」頁上傳。</li>
+          <li><b>會議結束後</b>，記錄者會收到提醒信。直接寫在模板上就完成了；也可以把模板下載下來用 Word 等軟體編輯，再到「<a href="${link('upload')}">上傳資料</a>」頁上傳，<b>上傳時勾選「這是會議記錄」</b>，網站就會把它顯示成該場的會議記錄。</li>
           <li><b>沒有完成會議記錄</b>：管理者標記後，系統會寄信通知你，並把你的<b>抽籤權重 +1</b>（被抽中報告的機率提高），直到你下次實際報告為止。</li>
         </ul>`)}
 
@@ -700,7 +702,7 @@ const render = {
 
       ${q('🧹 值日生與 🍜 吃飯抽籤', `
         <ul>
-          <li><b>值日生</b>：每週輪流一位，依通知名單順序，<b>不能拒絕</b>。輪到時會收到通知信，上面有工作內容。</li>
+          <li><b>值日生</b>：每週輪流一位，順序由管理者指定，<b>不能拒絕</b>。輪到時會收到通知信，上面有工作內容。</li>
           <li>完成後要由<b>管理者確認</b>才算完成；沒有確認的話，下一週仍由同一個人繼續擔任。</li>
           <li><b>吃飯抽籤</b>：大家都可以在清單裡新增或移除店家，按一下就隨機抽一家（會盡量避開最近抽過的）。</li>
         </ul>`)}
