@@ -158,6 +158,25 @@ async function go(page) {
 
 function msg(el, text, ok) { el.className = 'msg ' + (ok ? 'ok' : 'err'); el.innerHTML = text; }
 
+const pad2 = n => ('0' + n).slice(-2);
+/* 以伺服器時間為準：載入時算出與本機時鐘的差，之後都用「本機時鐘 + 差值」 */
+let SKEW = 0;
+function setServerNow(str) {       // str 格式：yyyy-MM-dd HH:mm（伺服器時區）
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(str || '');
+  if (!m) return;
+  const server = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+  SKEW = server - Date.now();
+}
+const serverDate = () => new Date(Date.now() + SKEW);
+const nowHM = () => { const d = serverDate(); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
+const todayKey = () => { const d = serverDate(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+/** 這場會議是否正在進行中 */
+function isLive(m) {
+  if (!m || m.cancelled) return false;
+  const t = nowHM();
+  return m.date === todayKey() && t >= m.start && t <= m.end;
+}
+
 function meetingLine(m) {
   if (!m) return '';
   if (m.cancelled) return `${esc(m.label)} <span class="cancel">（取消）</span>`;
@@ -260,9 +279,15 @@ async function uploadAll(files, meta, progEl) {
 const render = {
   home() {
     const n = B.upcoming[0];
+    const live = isLive(n);
+    clearInterval(window._liveTimer);
+    window._liveTimer = setInterval(() => {      // 會議開始／結束時自動更新畫面
+      if (B.page === 'home' && isLive(B.upcoming[0]) !== live) render.home();
+      else if (B.page !== 'home') clearInterval(window._liveTimer);
+    }, 30000);
     $('app').innerHTML = `
-      <div class="card next">
-        <h2>下次會議</h2>
+      <div class="card next" ${live ? 'style="border-left:5px solid var(--ok)"' : ''}>
+        <h2>${live ? '🟢 進行中的會議' : '下次會議'}</h2>
         ${n ? `<div>${meetingLine(n)}</div>
           ${n.presenters.length ? n.presenters.map(p => `<div class="pres"><b>${esc(p.name)}</b>：${esc(p.topic)}</div>`).join('')
             : `<div class="muted">尚無人登記報告　<a href="${link('present', '&date=' + n.date)}">我要登記</a></div>`}` : '<div class="muted">尚無排定的會議</div>'}
@@ -594,7 +619,7 @@ const render = {
     $('list').innerHTML = data.map(m => `
       <div class="card">
         <h2>${esc(m.label)} ${m.cancelled ? '<span class="cancel">取消</span>'
-          : `<span class="muted">${esc(m.start)}–${esc(m.end)} @ ${esc(m.location)}</span>`}</h2>
+          : `<span class="muted">${esc(m.start)}–${esc(m.end)} @ ${esc(m.location)}</span>${isLive(m) ? ' <span class="tag" style="background:#e8f5e9;color:#2e7d32">進行中</span>' : ''}`}</h2>
         ${m.movedFrom.length ? `<div class="muted" style="color:#e65100">⚠ 由 ${esc(m.movedFrom.join('、'))} 改期</div>` : ''}
         ${m.cancelled ? '' : `<div class="muted">會議記錄：${m.noter ? esc(m.noter) : '尚未指派'}</div>`}
         ${m.cancelled ? '' : (m.presenters.length
@@ -704,6 +729,7 @@ async function enter() {
   try {
     const boot = await callApi('getBoot', [SHELL.page, SHELL.params]);
     B = Object.assign({}, SHELL, boot, { url: SHELL.url });   // 連結一律指向這個網站
+    setServerNow(B.serverNow);                                // 時間一律以伺服器為準
     renderNav();
     (render[B.page] || render.home)();
   } catch (e) {
