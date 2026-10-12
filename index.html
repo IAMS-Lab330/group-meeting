@@ -290,7 +290,10 @@ const render = {
         <h2>${live ? '🟢 進行中的會議' : '下次會議'}</h2>
         ${n ? `<div>${meetingLine(n)}</div>
           ${n.presenters.length ? n.presenters.map(p => `<div class="pres"><b>${esc(p.name)}</b>：${esc(p.topic)}</div>`).join('')
-            : `<div class="muted">尚無人登記報告　<a href="${link('present', '&date=' + n.date)}">我要登記</a></div>`}` : '<div class="muted">尚無排定的會議</div>'}
+            : `<div class="muted">尚無人登記報告　<a href="${link('present', '&date=' + n.date)}">我要登記</a></div>`}
+          ${n.cancelled ? '' : `<div class="muted">會議記錄：${n.noter ? esc(n.noter) : '尚未指派'}${
+            n.minutes ? ` ｜ <a href="${esc(n.minutes)}" target="_blank">會議記錄文件</a>` : ''}</div>`}`
+        : '<div class="muted">尚無排定的會議</div>'}
       </div>
       <div class="grid">
         <a class="tile" href="${link('present')}"><b>📝 報告登記</b><span class="muted">登記或取消報告、填寫主題</span></a>
