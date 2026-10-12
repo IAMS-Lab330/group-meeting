@@ -517,11 +517,7 @@ const render = {
       <div class="card" style="text-align:center">
         <h2>今天吃什麼？</h2>
         <div style="margin:10px 0">
-          <select id="scope" style="max-width:200px;display:inline-block">
-            <option value="">全部</option>
-            <option value="校內">只抽校內</option>
-            <option value="校外">只抽校外</option>
-          </select>
+          <select id="scope" style="max-width:220px;display:inline-block"><option value="">全部</option></select>
         </div>
         <div id="pick" class="muted" style="font-size:22px;margin:18px 0">按下面的按鈕抽一家</div>
         <button id="draw" style="font-size:18px;padding:12px 30px">🍜 抽一家</button>
@@ -533,9 +529,10 @@ const render = {
           <label>新增店家</label>
           <input type="text" id="fname" placeholder="店名" required>
           <div style="display:flex;gap:8px;margin-top:6px">
-            <select id="fscope" style="flex:1"><option value="校外">校外</option><option value="校內">校內</option></select>
+            <select id="fscope" style="flex:1"></select>
             <input type="number" id="fweight" value="1" min="0" step="0.5" style="flex:1" title="權重：數字越大越容易被抽到">
           </div>
+          <input type="text" id="fnewcat" class="hidden" placeholder="新類別名稱" style="margin-top:6px">
           <input type="text" id="fnote" placeholder="備註或網址（選填）" style="margin-top:6px">
           <div class="muted" style="margin-top:4px">權重預設 1；填 2 代表被抽中的機率是別人的兩倍，填 0 則暫時不抽。</div>
           <button id="ab">加入清單</button>
@@ -549,12 +546,14 @@ const render = {
       $('list').className = '';
       const scope = $('scope').value;
       const shown = scope ? list.filter(f => f.scope === scope) : list;
+      const total = shown.reduce((a, f) => a + f.weight, 0);
       $('list').innerHTML = shown.length ? `<ul class="files">${shown.map(f => `<li>
         <span class="tag">${esc(f.scope)}</span>${esc(f.name)}
-        ${f.weight !== 1 ? ` <span class="muted">權重 ${f.weight}</span>` : ''}
+        <span class="muted">權重 ${f.weight}${total > 0 ? '，機率 ' + (f.weight / total * 100).toFixed(1) + '%' : '（不抽）'}</span>
         ${f.note ? ` <span class="muted">${link2(f.note)}</span>` : ''}
-        <a href="#" class="muted" data-del="${esc(f.name)}" style="float:right">移除</a></li>`).join('')}</ul>`
-        : '<div class="muted">這個分類還沒有店家，先加幾家吧</div>';
+        <a href="#" class="muted" data-del="${esc(f.name)}" style="float:right">移除</a></li>`).join('')}</ul>
+        <div class="muted" style="margin-top:6px">機率是${scope ? '「' + esc(scope) + '」' : '全部店家'}範圍內依權重計算；實際抽籤會盡量避開最近抽過的幾家。</div>`
+        : '<div class="muted">這個類別還沒有店家，先加幾家吧</div>';
       [...$('list').querySelectorAll('a[data-del]')].forEach(a => a.onclick = async e => {
         e.preventDefault();
         try { const r = await run('removeFood', { name: a.dataset.del }); FOOD = r.list; drawList(FOOD); msg($('fmsg'), esc(r.msg), true); }
@@ -568,9 +567,19 @@ const render = {
         : '—';
     };
 
-    let FOOD = [];
-    try { const d = await run('getFood'); FOOD = d.list; drawList(FOOD); drawRecent(d.recent); }
-    catch (e) { $('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+    let FOOD = [], CATS = [];
+    const fillCats = () => {
+      $('scope').innerHTML = '<option value="">全部</option>' +
+        CATS.map(c => `<option value="${esc(c)}">只抽${esc(c)}</option>`).join('');
+      $('fscope').innerHTML = CATS.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('') +
+        '<option value="__new">＋ 新增類別…</option>';
+    };
+    try {
+      const d = await run('getFood');
+      FOOD = d.list; CATS = d.categories || [];
+      fillCats(); drawList(FOOD); drawRecent(d.recent);
+    } catch (e) { $('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+    $('fscope').onchange = () => $('fnewcat').classList.toggle('hidden', $('fscope').value !== '__new');
     try { $('scope').value = localStorage.getItem('gm_food_scope') || ''; } catch (e) {}
     $('scope').onchange = () => {
       try { localStorage.setItem('gm_food_scope', $('scope').value); } catch (e) {}
@@ -594,9 +603,14 @@ const render = {
       e.preventDefault();
       $('ab').disabled = true;
       try {
+        const cat = $('fscope').value === '__new' ? $('fnewcat').value.trim() : $('fscope').value;
+        if (!cat) throw new Error('請選擇或輸入類別');
         const r = await run('addFood', { name: $('fname').value, note: $('fnote').value,
-          scope: $('fscope').value, weight: $('fweight').value });
-        FOOD = r.list; drawList(FOOD); msg($('fmsg'), esc(r.msg), true);
+          scope: cat, weight: $('fweight').value });
+        FOOD = r.list;
+        if (CATS.indexOf(cat) < 0) { CATS.push(cat); fillCats(); }
+        drawList(FOOD); msg($('fmsg'), esc(r.msg), true);
+        $('fnewcat').value = ''; $('fnewcat').classList.add('hidden');
         $('fname').value = ''; $('fnote').value = '';
       } catch (err) { msg($('fmsg'), esc(err.message)); }
       $('ab').disabled = false;
@@ -729,7 +743,7 @@ const render = {
         <ul>
           <li><b>值日生</b>：每週輪流一位，順序由管理者指定，<b>不能拒絕</b>。輪到時會收到通知信，上面有工作內容。</li>
           <li>完成後要由<b>管理者確認</b>才算完成；沒有確認的話，下一週仍由同一個人繼續擔任。</li>
-          <li><b>吃飯抽籤</b>：大家都可以新增或移除店家，每家可以設定<b>校內／校外</b>和<b>權重</b>（數字越大越容易被抽到，0 代表暫時不抽）。抽籤時可選只抽校內或校外，系統會依權重隨機抽，並盡量避開最近抽過的。</li>
+          <li><b>吃飯抽籤</b>：大家都可以新增或移除店家，每家可設定<b>類別</b>（校內、校外…可自行新增）和<b>權重</b>（數字越大越容易被抽到，0 代表暫時不抽）。清單會顯示每家的中籤機率；抽籤時可限定某個類別，系統依權重隨機抽，並盡量避開最近抽過的。</li>
         </ul>`)}
 
       ${q('❓ 常見問題', `
