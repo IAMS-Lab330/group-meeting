@@ -621,7 +621,8 @@ const render = {
         <h2>${esc(m.label)} ${m.cancelled ? '<span class="cancel">取消</span>'
           : `<span class="muted">${esc(m.start)}–${esc(m.end)} @ ${esc(m.location)}</span>${isLive(m) ? ' <span class="tag" style="background:#e8f5e9;color:#2e7d32">進行中</span>' : ''}`}</h2>
         ${m.movedFrom.length ? `<div class="muted" style="color:#e65100">⚠ 由 ${esc(m.movedFrom.join('、'))} 改期</div>` : ''}
-        ${m.cancelled ? '' : `<div class="muted">會議記錄：${m.noter ? esc(m.noter) : '尚未指派'}</div>`}
+        ${m.cancelled ? '' : `<div class="muted">會議記錄：${m.noter ? esc(m.noter) : '尚未指派'}${
+          m.minutes ? ` ｜ <a href="${esc(m.minutes)}" target="_blank">會議記錄文件</a>` : ''}</div>`}
         ${m.cancelled ? '' : (m.presenters.length
           ? m.presenters.map(p => `<div class="pres"><b>${esc(p.name)}</b>${p.drawn ? ' <span class="tag">抽籤</span>' : ''}：${esc(p.topic || '（主題待定）')}
             <a class="muted" style="float:right" href="${link('present', '&action=manage&date=' + m.date + '&name=' + encodeURIComponent(p.name))}">改期／取消</a></div>`).join('')
