@@ -516,6 +516,13 @@ const render = {
     $('app').innerHTML = `
       <div class="card" style="text-align:center">
         <h2>今天吃什麼？</h2>
+        <div style="margin:10px 0">
+          <select id="scope" style="max-width:200px;display:inline-block">
+            <option value="">全部</option>
+            <option value="校內">只抽校內</option>
+            <option value="校外">只抽校外</option>
+          </select>
+        </div>
         <div id="pick" class="muted" style="font-size:22px;margin:18px 0">按下面的按鈕抽一家</div>
         <button id="draw" style="font-size:18px;padding:12px 30px">🍜 抽一家</button>
       </div>
@@ -525,7 +532,12 @@ const render = {
         <form id="af" style="margin-top:14px">
           <label>新增店家</label>
           <input type="text" id="fname" placeholder="店名" required>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <select id="fscope" style="flex:1"><option value="校外">校外</option><option value="校內">校內</option></select>
+            <input type="number" id="fweight" value="1" min="0" step="0.5" style="flex:1" title="權重：數字越大越容易被抽到">
+          </div>
           <input type="text" id="fnote" placeholder="備註或網址（選填）" style="margin-top:6px">
+          <div class="muted" style="margin-top:4px">權重預設 1；填 2 代表被抽中的機率是別人的兩倍，填 0 則暫時不抽。</div>
           <button id="ab">加入清單</button>
         </form>
         <div id="fmsg" class="msg"></div>
@@ -535,13 +547,17 @@ const render = {
     const link2 = t => /^https?:\/\//i.test(t) ? `<a href="${esc(t)}" target="_blank">${esc(t)}</a>` : esc(t);
     const drawList = list => {
       $('list').className = '';
-      $('list').innerHTML = list.length ? `<ul class="files">${list.map(f => `<li>${esc(f.name)}
+      const scope = $('scope').value;
+      const shown = scope ? list.filter(f => f.scope === scope) : list;
+      $('list').innerHTML = shown.length ? `<ul class="files">${shown.map(f => `<li>
+        <span class="tag">${esc(f.scope)}</span>${esc(f.name)}
+        ${f.weight !== 1 ? ` <span class="muted">權重 ${f.weight}</span>` : ''}
         ${f.note ? ` <span class="muted">${link2(f.note)}</span>` : ''}
         <a href="#" class="muted" data-del="${esc(f.name)}" style="float:right">移除</a></li>`).join('')}</ul>`
-        : '<div class="muted">清單是空的，先加幾家店吧</div>';
+        : '<div class="muted">這個分類還沒有店家，先加幾家吧</div>';
       [...$('list').querySelectorAll('a[data-del]')].forEach(a => a.onclick = async e => {
         e.preventDefault();
-        try { const r = await run('removeFood', { name: a.dataset.del }); drawList(r.list); msg($('fmsg'), esc(r.msg), true); }
+        try { const r = await run('removeFood', { name: a.dataset.del }); FOOD = r.list; drawList(FOOD); msg($('fmsg'), esc(r.msg), true); }
         catch (err) { msg($('fmsg'), esc(err.message)); }
       });
     };
@@ -552,16 +568,24 @@ const render = {
         : '—';
     };
 
-    try { const d = await run('getFood'); drawList(d.list); drawRecent(d.recent); }
+    let FOOD = [];
+    try { const d = await run('getFood'); FOOD = d.list; drawList(FOOD); drawRecent(d.recent); }
     catch (e) { $('list').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+    try { $('scope').value = localStorage.getItem('gm_food_scope') || ''; } catch (e) {}
+    $('scope').onchange = () => {
+      try { localStorage.setItem('gm_food_scope', $('scope').value); } catch (e) {}
+      drawList(FOOD);
+    };
 
     $('draw').onclick = async () => {
       $('draw').disabled = true;
       $('pick').textContent = '抽籤中…';
       try {
-        const r = await run('drawFood');
+        const r = await run('drawFood', { scope: $('scope').value });
         $('pick').className = '';
-        $('pick').innerHTML = `🎉 <b>${esc(r.pick.name)}</b>${r.pick.note ? `<div class="muted" style="font-size:14px">${link2(r.pick.note)}</div>` : ''}`;
+        $('pick').innerHTML = `🎉 <b>${esc(r.pick.name)}</b> <span class="tag">${esc(r.pick.scope)}</span>
+          ${r.pick.note ? `<div class="muted" style="font-size:14px">${link2(r.pick.note)}</div>` : ''}
+          <div class="muted" style="font-size:13px">從 ${r.candidates} 家中依權重抽出</div>`;
         drawRecent(r.recent);
       } catch (e) { $('pick').className = 'msg err'; $('pick').textContent = e.message; }
       $('draw').disabled = false;
@@ -570,8 +594,9 @@ const render = {
       e.preventDefault();
       $('ab').disabled = true;
       try {
-        const r = await run('addFood', { name: $('fname').value, note: $('fnote').value });
-        drawList(r.list); msg($('fmsg'), esc(r.msg), true);
+        const r = await run('addFood', { name: $('fname').value, note: $('fnote').value,
+          scope: $('fscope').value, weight: $('fweight').value });
+        FOOD = r.list; drawList(FOOD); msg($('fmsg'), esc(r.msg), true);
         $('fname').value = ''; $('fnote').value = '';
       } catch (err) { msg($('fmsg'), esc(err.message)); }
       $('ab').disabled = false;
@@ -704,7 +729,7 @@ const render = {
         <ul>
           <li><b>值日生</b>：每週輪流一位，順序由管理者指定，<b>不能拒絕</b>。輪到時會收到通知信，上面有工作內容。</li>
           <li>完成後要由<b>管理者確認</b>才算完成；沒有確認的話，下一週仍由同一個人繼續擔任。</li>
-          <li><b>吃飯抽籤</b>：大家都可以在清單裡新增或移除店家，按一下就隨機抽一家（會盡量避開最近抽過的）。</li>
+          <li><b>吃飯抽籤</b>：大家都可以新增或移除店家，每家可以設定<b>校內／校外</b>和<b>權重</b>（數字越大越容易被抽到，0 代表暫時不抽）。抽籤時可選只抽校內或校外，系統會依權重隨機抽，並盡量避開最近抽過的。</li>
         </ul>`)}
 
       ${q('❓ 常見問題', `
@@ -785,7 +810,12 @@ const render = {
           ${m.presenters.map(p => `<div class="pres"><b>${esc(p.name)}</b>${p.noShow ? ' <span class="tag">實際未報告</span>' : ''}：${esc(p.topic)}
             ${p.refs ? `<div class="muted">${p.refs.split(/\s+/).filter(Boolean).map(u => /^https?:/i.test(u) ? `<a href="${esc(u)}" target="_blank">${esc(u)}</a>` : esc(u)).join('<br>')}</div>` : ''}</div>`).join('')}
           ${m.note ? `<div class="muted">備註：${esc(m.note)}</div>` : ''}
-          ${m.files.length ? `<ul class="files">${m.files.map(f => `<li><a href="${esc(f.url)}" target="_blank">${esc(f.name)}</a>
+          ${m.cancelled ? '' : `<div style="margin:8px 0;padding:6px 10px;background:#f5f6fb;border-radius:6px">
+            📝 會議記錄：${m.noter ? esc(m.noter) : '未指派'}
+            ${m.minutes ? ` ｜ <a href="${esc(m.minutes)}" target="_blank">開啟會議記錄</a>`
+                        : ' <span class="muted">（尚未完成）</span>'}
+            ${m.noterFail ? ' <span class="tag" style="background:#ffebee;color:#c62828">未完成</span>' : ''}</div>`}
+          ${m.files.length ? `<ul class="files">${m.files.map(f => `<li>${f.category === '會議記錄' ? '<span class="tag">會議記錄</span>' : ''}<a href="${esc(f.url)}" target="_blank">${esc(f.name)}</a>
               <span class="muted">— ${esc(f.uploader)}${f.desc ? '，' + esc(f.desc) : ''}</span></li>`).join('')}</ul>`
             : '<div class="muted">尚無上傳檔案</div>'}
           <div style="margin-top:8px"><a href="${link('upload', '&date=' + m.date)}">＋ 上傳檔案到這場會議</a></div>
